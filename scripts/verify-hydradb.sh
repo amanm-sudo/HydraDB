@@ -10,7 +10,7 @@ HDR_AUTH="Authorization: Bearer $TOKEN"
 HDR_NS='X-Graph-Namespace: default'
 HDR_CT='Content-Type: application/json'
 
-echo "Writing test edge..."
+echo "Writing test edge to HydraDB..."
 curl -sS "$BASE" \
   -H "$HDR_AUTH" -H "$HDR_NS" -H "$HDR_CT" \
   --data '{"cell_id":"cell-0","query":"CREATE (a {id: 99901})-[:TEST_EDGE]->(b {id: 99902})"}' \

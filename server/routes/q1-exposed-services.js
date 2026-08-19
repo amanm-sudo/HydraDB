@@ -32,15 +32,22 @@ YIELD path
 RETURN path
 `.trim();
 
-// Fallback: plain variable-length MATCH traversal (used if algo.MSpaths
-// doesn't resolve multi-label crossing paths in this version of HydraDB)
+// Fallback: plain variable-length MATCH traversal.
+// HydraDB requires DIRECTED relationships (cypher-compat.md).
+// Strategy: find all Versions that (directly or transitively) DEPEND_ON a Package
+// in the dependency chain of the compromised version, then traverse PINS + RESOLVED.
 export const CYPHER_Q1_FALLBACK = `
-MATCH (v:Version {package: $packageName, semver: $semver})
-      -[:DEPENDS_ON*0..5]->(dep:Package)
-      <-[:DEPENDS_ON*0..3]-(other:Version)
-      <-[:PINS]-(lf:Lockfile)
-      <-[:RESOLVED]-(svc:Service)
+MATCH (v:Version {package: $packageName, semver: $semver})-[:DEPENDS_ON*0..4]->(dep:Package)
+MATCH (lf:Lockfile)-[:PINS]->(v2:Version)-[:DEPENDS_ON*0..3]->(dep)
+MATCH (svc:Service)-[:RESOLVED]->(lf)
 RETURN DISTINCT svc.name AS service, dep.name AS via_package
+ORDER BY service
+`.trim();
+
+// Simpler fallback: direct PINS from lockfile to compromised version
+export const CYPHER_Q1_DIRECT = `
+MATCH (svc:Service)-[:RESOLVED]->(lf:Lockfile)-[:PINS]->(v:Version {package: $packageName, semver: $semver})
+RETURN DISTINCT svc.name AS service
 ORDER BY service
 `.trim();
 
@@ -89,16 +96,31 @@ router.get('/:pkg/:version/exposed-services', async (req, res) => {
       if (results.length === 0) throw new Error('algo.MSpaths returned 0 results — trying fallback');
 
     } catch (mspathsErr) {
-      // Fallback to plain MATCH traversal
+      // Fallback 1: complex variable-length MATCH traversal
       console.warn(`[Q1] algo.MSpaths failed (${mspathsErr.message}), using fallback MATCH`);
       method = 'MATCH variable-length path (fallback)';
       cypherUsed = CYPHER_Q1_FALLBACK;
 
-      const records = await readQuery(CYPHER_Q1_FALLBACK, { packageName, semver });
-      results = records.map((r) => ({
-        service: r.get('service'),
-        via_package: r.get('via_package'),
-      }));
+      try {
+        const records = await readQuery(CYPHER_Q1_FALLBACK, { packageName, semver });
+        results = records.map((r) => ({
+          service: r.get('service'),
+          via_package: r.get('via_package'),
+        }));
+
+        if (results.length === 0) throw new Error('complex MATCH returned 0 — trying direct PINS');
+      } catch (fallbackErr) {
+        // Fallback 2: simplest direct PINS query (Service→Lockfile→Version)
+        console.warn(`[Q1] fallback MATCH failed (${fallbackErr.message}), using direct PINS`);
+        method = 'Direct PINS traversal (fallback 2)';
+        cypherUsed = CYPHER_Q1_DIRECT;
+
+        const records = await readQuery(CYPHER_Q1_DIRECT, { packageName, semver });
+        results = records.map((r) => ({
+          service: r.get('service'),
+          via_package: packageName,
+        }));
+      }
     }
 
     const exposedServices = [...new Set(results.map((r) => r.service).filter(Boolean))];

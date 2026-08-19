@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # scripts/start-hydradb.sh
 # Start HydraDB graph-node server.
-# Run in its own dedicated terminal — it holds the foreground.
-# Prerequisite: run setup-hydradb-wsl.sh first (just smoke must pass).
+# Run this in a DEDICATED WSL2 terminal — it holds the foreground.
+# Prerequisites: 
+#   1. scripts/setup-hydradb-wsl.sh has been run (just smoke must pass)
+#   2. GraphBLAS 10.x installed at /usr/local/lib/
 set -euo pipefail
 
-export PATH="/usr/bin:/usr/sbin:/bin:/sbin:$HOME/.cargo/bin:$PATH"
+export PATH="/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin:$HOME/.cargo/bin:$PATH"
 source ~/.cargo/env
+
+# Ensure the system can find GraphBLAS 10.x (built from source)
+export LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH:-}"
+sudo ldconfig 2>/dev/null || true
 
 PROJ="/mnt/d/Downloads/HydraDB"
 HYDRA_DIR="$PROJ/hydradb-core"
@@ -41,8 +47,8 @@ echo " Bolt:  bolt://127.0.0.1:7687"
 echo " HTTP:  http://127.0.0.1:8443"
 echo " Admin: http://127.0.0.1:9090"
 echo ""
-echo " Verify alive (other terminal):"
-echo "   bash scripts/verify-hydradb.sh"
+echo " Verify alive (another WSL2 terminal):"
+echo "   bash /mnt/d/Downloads/HydraDB/scripts/verify-hydradb.sh"
 echo "=========================================="
 echo ""
 

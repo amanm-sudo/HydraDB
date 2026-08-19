@@ -37,8 +37,8 @@ const SEED_PACKAGES = [
   '@tanstack/router',
   '@tanstack/react-router',
   '@tanstack/react-table',
-  '@tanstack/virtual',
   '@tanstack/react-virtual',
+  '@tanstack/store',
   '@tanstack/form-core',
   '@tanstack/react-form',
 ];
