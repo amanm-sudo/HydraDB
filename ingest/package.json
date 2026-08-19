@@ -1,0 +1,15 @@
+{
+  "name": "blast-radius-ingest",
+  "version": "1.0.0",
+  "description": "npm registry ingestion into HydraDB for blast-radius",
+  "main": "ingest.js",
+  "type": "module",
+  "scripts": {
+    "ingest": "node ingest.js",
+    "ingest:dry": "node ingest.js --dry-run"
+  },
+  "dependencies": {
+    "neo4j-driver": "^5.28.1",
+    "node-fetch": "^3.3.2"
+  }
+}
