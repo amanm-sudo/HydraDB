@@ -106,6 +106,22 @@ Variable-length paths `*0..5` are native to HydraDB's OpenCypher engine and use 
 
 HydraDB's OpenCypher subset (confirmed in `cypher-compat.md`) does not include Levenshtein or string-distance functions. Per the brief's instructions ("compute this in the ingestion or API layer"), we fetch all package names from HydraDB in one query and apply `fastest-levenshtein` in Node.js. This is honestly documented here and in the UI.
 
+### A note on HydraDB's batch-write contract
+
+HydraDB's `UNWIND ... MERGE` batch write form (used throughout `ingest/graph-writer.js`)
+requires every vertex to carry a literal, non-negative **integer** `id` property —
+domain keys like `{name: row.name}` are rejected in the batch form (`cypher-compat.md`:
+"a vertex upsert has to be `MERGE` by id followed by `SET`"). Since our domain identity
+is string-based (package name, package+semver, etc.), the ingestion pipeline derives a
+stable integer `id` via a SHA-256-based hash of the domain key for every node, and keeps
+the original domain properties (`name`, `package`, `semver`, ...) as regular `SET`
+properties. All six query routes still `MATCH` by those domain properties — the
+integer `id` is purely an internal write-path detail, invisible to the API and frontend.
+Batch relationship writes similarly need `MATCH (a:Label {id: ...}), (b:Label {id: ...})`
+(a single `MATCH` with comma-separated patterns, exactly one label per endpoint) followed
+by `MERGE (a)-[r:REL {id: ...}]->(b)` — chained `MATCH` clauses or a bare `MERGE` without
+a relationship `id` are both rejected by HydraDB's OpenCypher engine.
+
 ---
 
 ## Data Sources
@@ -173,6 +189,21 @@ bash ../scripts/start-hydradb.sh
 bash scripts/verify-hydradb.sh
 # Must print: verify-ok
 ```
+
+> **Important — data directory must be on native Linux storage, not a Windows-mounted path.**
+> HydraDB's local object-store backend uses conditional/atomic file updates
+> (`PutMode::Update`) that WSL2's `/mnt/d/...` (9p/drvfs) filesystem does not
+> support — writes past the very first one will fail with
+> `object store error: Operation put_opts with mode PutMode::Update not yet
+> implemented by LocalFileSystem`. Point `LOCAL_PATH` / `GRAPH_DATA_CACHE_DIR` /
+> `GRAPH_AUTH_TOKEN_FILE` at a path under the WSL2 filesystem itself (e.g.
+> `/root/.hydradb/...` or `~/.hydradb/...`), not under `/mnt/c` or `/mnt/d`.
+>
+> **Also:** connect with `bolt://` (direct), not `neo4j://` (routing) — HydraDB
+> is a single-node server and does not implement the Bolt routing-table
+> discovery that `neo4j://` triggers, so `neo4j://` URIs fail with
+> `ServiceUnavailable: Could not perform discovery`. This repo's `HYDRADB_BOLT_URI`
+> default and `.env.example` already use `bolt://127.0.0.1:7687`.
 
 ### 2. Ingest real npm data
 

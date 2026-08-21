@@ -6,10 +6,14 @@
   "type": "module",
   "scripts": {
     "ingest": "node ingest.js",
-    "ingest:dry": "node ingest.js --dry-run"
+    "ingest:dry": "node ingest.js --dry-run",
+    "test": "node --experimental-test-module-mocks --test test/*.test.js"
   },
   "dependencies": {
-    "neo4j-driver": "^5.28.1",
+    "neo4j-driver": "5.26.0",
     "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "fast-check": "4.9.0"
   }
 }

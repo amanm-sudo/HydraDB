@@ -13,6 +13,12 @@ async function get(path) {
   return { status: res.status, body };
 }
 
+// Node's undici-based `fetch` reports connection failures as a TypeError whose
+// `.code` is undefined, with the actual `ECONNREFUSED` nested under `.cause`.
+function isConnRefused(e) {
+  return e.code === 'ECONNREFUSED' || e.cause?.code === 'ECONNREFUSED';
+}
+
 describe('Health check', () => {
   test('GET /health returns ok', async () => {
     try {
@@ -21,7 +27,7 @@ describe('Health check', () => {
       assert.equal(body.status, 'ok');
       assert.ok(body.timestamp);
     } catch (e) {
-      if (e.code === 'ECONNREFUSED') {
+      if (isConnRefused(e)) {
         console.warn('SKIP: API server not running (start with: cd server && npm start)');
         return;
       }
@@ -40,7 +46,7 @@ describe('Q2 — compromise window', () => {
       assert.ok(typeof body.cypher === 'string');
       console.log(`  Q2: found ${body.count} compromised versions`);
     } catch (e) {
-      if (e.code === 'ECONNREFUSED') {
+      if (isConnRefused(e)) {
         console.warn('SKIP: API server not running');
         return;
       }
@@ -58,7 +64,7 @@ describe('Q3 — exposed lockfiles', () => {
       assert.ok(Array.isArray(body.exposed_lockfiles));
       console.log(`  Q3: found ${body.count} exposed lockfiles`);
     } catch (e) {
-      if (e.code === 'ECONNREFUSED') {
+      if (isConnRefused(e)) {
         console.warn('SKIP: API server not running');
         return;
       }
@@ -76,7 +82,7 @@ describe('Q4 — maintainer overlap', () => {
       assert.ok(Array.isArray(body.maintainer_overlaps));
       console.log(`  Q4: found ${body.maintainer_count} maintainers, ${body.packages_at_risk_count} packages at risk`);
     } catch (e) {
-      if (e.code === 'ECONNREFUSED') {
+      if (isConnRefused(e)) {
         console.warn('SKIP: API server not running');
         return;
       }
@@ -98,7 +104,7 @@ describe('Q5 — typosquats', () => {
       }
       console.log(`  Q5: ${body.count} typosquat candidates, ${body.total_packages_checked} total checked`);
     } catch (e) {
-      if (e.code === 'ECONNREFUSED') {
+      if (isConnRefused(e)) {
         console.warn('SKIP: API server not running');
         return;
       }
@@ -120,7 +126,7 @@ describe('Q6 — composite blast radius', () => {
       assert.ok(typeof body.elapsed_ms === 'number');
       console.log(`  Q6: ${body.summary}`);
     } catch (e) {
-      if (e.code === 'ECONNREFUSED') {
+      if (isConnRefused(e)) {
         console.warn('SKIP: API server not running');
         return;
       }

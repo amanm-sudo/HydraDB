@@ -9,9 +9,10 @@ import { router as q3Router } from './routes/q3-exposed-lockfiles.js';
 import { router as q4Router } from './routes/q4-maintainer-overlap.js';
 import { router as q5Router } from './routes/q5-typosquats.js';
 import { router as q6Router } from './routes/q6-composite.js';
+import { resolvePort, resolveBoltUri } from './config.js';
 
 const app = express();
-const PORT = process.env.PORT ?? 3001;
+const PORT = resolvePort(process.env);
 
 app.use(cors());
 app.use(express.json());
@@ -71,5 +72,5 @@ app.get('/api/compromised', async (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`blast-radius API server running on http://localhost:${PORT}`);
-  console.log(`HydraDB Bolt: ${process.env.HYDRADB_BOLT_URI ?? 'neo4j://127.0.0.1:7687'}`);
+  console.log(`HydraDB Bolt: ${resolveBoltUri(process.env)}`);
 });

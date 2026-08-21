@@ -10,6 +10,7 @@
 //
 // SERVICE/LOCKFILE LAYER: illustrative only. See README "Data Sources" section.
 
+import { fileURLToPath } from 'url';
 import { fetchPackage, extractPackageSummary } from './npm-client.js';
 import {
   writePackages,
@@ -131,7 +132,38 @@ const ILLUSTRATIVE_LOCKFILES = [
 
 // ── Ingestion logic ───────────────────────────────────────────────────────────
 
-async function crawl(seeds, maxDepth) {
+// Returns at most `limit` of the most-recently-published versions from `versions`.
+// `versions` is expected to be sorted ascending by `published_at` (per
+// `extractPackageSummary` in npm-client.js), so this is equivalent to
+// `versions.slice(-limit)`. Pure function — safe to test independently.
+export function selectRecentVersions(versions, limit) {
+  return versions.slice(-limit);
+}
+
+// Returns true when `depth` is still within the allowed crawl depth `maxDepth`,
+// i.e. whether dependencies discovered at `depth` should be enqueued for further
+// crawling. Pure function — safe to test independently.
+export function withinCrawlDepth(depth, maxDepth) {
+  return depth < maxDepth;
+}
+
+// Returns compromise-tagging fields for a given package/semver pair against
+// `compromiseMap` (keyed by package name, with a `semver` field plus
+// `compromised_at`/`compromise_window_end` window fields). `is_compromised` is
+// true iff the map has an entry for `packageName` whose `semver` exactly
+// matches `semver`. Pure function — safe to test independently.
+export function tagCompromise(packageName, semver, compromiseMap) {
+  const compromise = compromiseMap[packageName];
+  const isCompromised = Boolean(compromise && compromise.semver === semver);
+
+  return {
+    is_compromised: isCompromised,
+    compromised_at: isCompromised ? compromise.compromised_at : null,
+    compromise_window_end: isCompromised ? compromise.compromise_window_end : null,
+  };
+}
+
+export async function crawl(seeds, maxDepth) {
   const visited = new Set();
   const queue = seeds.map((s) => ({ name: s, depth: 0 }));
 
@@ -157,23 +189,18 @@ async function crawl(seeds, maxDepth) {
     }
 
     // Only ingest last N versions to keep graph size manageable
-    const versionsToIngest = pkg.versions.slice(-MAX_VERSIONS_PER_PKG);
+    const versionsToIngest = selectRecentVersions(pkg.versions, MAX_VERSIONS_PER_PKG);
 
     for (const v of versionsToIngest) {
-      const compromise = COMPROMISED_VERSIONS[pkg.name];
-      const isCompromised = compromise && compromise.semver === v.semver;
-
       allVersions.push({
         package: pkg.name,
         semver: v.semver,
         published_at: v.published_at,
-        is_compromised: isCompromised,
-        compromised_at: isCompromised ? compromise.compromised_at : null,
-        compromise_window_end: isCompromised ? compromise.compromise_window_end : null,
+        ...tagCompromise(pkg.name, v.semver, COMPROMISED_VERSIONS),
       });
 
       // Queue dependencies for next hop
-      if (depth < maxDepth) {
+      if (withinCrawlDepth(depth, maxDepth)) {
         for (const [depName, depRange] of Object.entries(v.dependencies)) {
           allDeps.push({
             from_package: pkg.name,
@@ -197,7 +224,38 @@ async function crawl(seeds, maxDepth) {
   return { allPackages, allVersions, allDeps, allMaintainers };
 }
 
-async function main() {
+// Builds a plain-object summary of what would be (or was) written to HydraDB
+// for a given crawl result, without ever invoking any graph-writer.js write
+// function. Both the dry-run branch and the real write path derive their
+// console summary from this same function so their reported counts can never
+// drift apart. Pure function — safe to call in tests without a live HydraDB.
+export function buildWriteReport(
+  { allPackages, allVersions, allDeps, allMaintainers },
+  { serviceCount = 0, lockfileCount = 0 } = {}
+) {
+  const counts = {
+    packages: allPackages.length,
+    versions: allVersions.length,
+    dependencies: allDeps.length,
+    maintainers: allMaintainers.length,
+    services: serviceCount,
+    lockfiles: lockfileCount,
+  };
+
+  const summaryText = [
+    'Crawl complete:',
+    `  Packages:    ${counts.packages}`,
+    `  Versions:    ${counts.versions}`,
+    `  DEPENDS_ON:  ${counts.dependencies}`,
+    `  Maintainers: ${counts.maintainers}`,
+    `  Services:    ${counts.services} (illustrative)`,
+    `  Lockfiles:   ${counts.lockfiles} (illustrative)`,
+  ].join('\n');
+
+  return { ...counts, summaryText };
+}
+
+export async function main() {
   console.log('=== blast-radius ingestion ===');
   console.log(`DRY_RUN: ${DRY_RUN}`);
   console.log(`Seed packages: ${SEED_PACKAGES.length}`);
@@ -205,19 +263,16 @@ async function main() {
   console.log('');
 
   console.log('[1/4] Crawling npm registry...');
-  const { allPackages, allVersions, allDeps, allMaintainers } = await crawl(
-    SEED_PACKAGES,
-    MAX_DEPTH
-  );
+  const crawlResult = await crawl(SEED_PACKAGES, MAX_DEPTH);
+  const { allPackages, allVersions, allDeps, allMaintainers } = crawlResult;
+
+  const report = buildWriteReport(crawlResult, {
+    serviceCount: ILLUSTRATIVE_SERVICES.length,
+    lockfileCount: ILLUSTRATIVE_LOCKFILES.length,
+  });
 
   console.log('');
-  console.log(`Crawl complete:`);
-  console.log(`  Packages:    ${allPackages.length}`);
-  console.log(`  Versions:    ${allVersions.length}`);
-  console.log(`  DEPENDS_ON:  ${allDeps.length}`);
-  console.log(`  Maintainers: ${allMaintainers.length}`);
-  console.log(`  Services:    ${ILLUSTRATIVE_SERVICES.length} (illustrative)`);
-  console.log(`  Lockfiles:   ${ILLUSTRATIVE_LOCKFILES.length} (illustrative)`);
+  console.log(report.summaryText);
 
   if (DRY_RUN) {
     console.log('\nDRY RUN — skipping graph writes.');
@@ -251,7 +306,11 @@ async function main() {
   console.log('\ningestion-complete');
 }
 
-main().catch((err) => {
-  console.error('Ingestion failed:', err);
-  process.exit(1);
-});
+// Only run the ingestion when this file is executed directly (`node ingest.js`),
+// not when it's imported as a module (e.g. from tests importing crawl/selectRecentVersions/etc).
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error('Ingestion failed:', err);
+    process.exit(1);
+  });
+}

@@ -2,9 +2,10 @@
 // HydraDB connection via neo4j-driver over Bolt.
 // HydraDB is fully Bolt 5.x compatible — no custom protocol needed.
 import neo4j from 'neo4j-driver';
+import { resolveBoltUri, resolveAuthToken } from './config.js';
 
-const BOLT_URI = process.env.HYDRADB_BOLT_URI ?? 'neo4j://127.0.0.1:7687';
-const AUTH_TOKEN = process.env.HYDRADB_TOKEN ?? 'local-development-token-32-bytes';
+const BOLT_URI = resolveBoltUri(process.env);
+const AUTH_TOKEN = resolveAuthToken(process.env);
 
 let driver;
 
@@ -12,7 +13,7 @@ export function getDriver() {
   if (!driver) {
     driver = neo4j.driver(
       BOLT_URI,
-      neo4j.auth.basic('', AUTH_TOKEN),
+      neo4j.auth.bearer(AUTH_TOKEN),
       {
         encrypted: false,
         trust: 'TRUST_ALL_CERTIFICATES',

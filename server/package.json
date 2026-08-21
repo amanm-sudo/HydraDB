@@ -7,15 +7,16 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --experimental-test-module-mocks --test test/*.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "fastest-levenshtein": "^1.0.16",
-    "neo4j-driver": "^5.28.1"
+    "neo4j-driver": "5.26.0"
   },
   "devDependencies": {
+    "fast-check": "4.9.0",
     "supertest": "^7.0.0"
   }
 }
